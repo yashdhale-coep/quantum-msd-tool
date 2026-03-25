@@ -223,17 +223,21 @@ def _expectation(params, n_qubits, energies, p):
     return float(np.dot(probs, energies))
 
 
-def _cobyla_minimize(func, x0, maxiter=300):
-    """Multi-start optimization to escape local minima."""
+def _lbfgsb_minimize(func, x0, n_restarts=5, maxiter=300):
+    """
+    Multi-start L-BFGS-B optimization to escape local minima.
+    Scales restarts with the number of parameters to handle higher p layers better.
+    """
     from scipy.optimize import minimize
 
-    best_val    = np.inf
-    best_params = x0
+    best_val     = np.inf
+    best_params  = x0.copy()
     best_history = []
 
-    # Multiple starting points
     rng = np.random.default_rng(7)
-    starts = [x0] + [rng.uniform(0, np.pi, size=len(x0)) for _ in range(4)]
+    starts = [x0] + [rng.uniform(0, 2 * np.pi, size=len(x0)) for _ in range(n_restarts - 1)]
+
+    bounds = [(0, 2 * np.pi)] * len(x0)
 
     for start in starts:
         energy_history = []
@@ -243,13 +247,50 @@ def _cobyla_minimize(func, x0, maxiter=300):
             energy_history.append(float(val))
             return val
 
-        res = minimize(wrapped, start, method="COBYLA",
-                       options={"maxiter": maxiter, "rhobeg": 0.8})
+        res = minimize(wrapped, start, method="L-BFGS-B", bounds=bounds,
+                       options={"maxiter": maxiter, "ftol": 1e-9, "gtol": 1e-7})
 
         if res.fun < best_val:
             best_val     = res.fun
             best_params  = res.x
             best_history = energy_history
+
+    return best_params, best_history
+
+
+def _parameter_transfer_minimize(n_qubits, energies, n_restarts=6, maxiter=300):
+    """
+    Optimise QAOA angles for p=1 (few parameters, reliable convergence).
+    The returned angles are used by the caller as a warm-start seed for
+    higher-p optimisation, implementing the parameter transfer heuristic.
+    Returns (best_params, energy_history).
+    """
+    from scipy.optimize import minimize
+
+    def objective_p1(params):
+        return _expectation(params, n_qubits, energies, 1)
+
+    best_params  = None
+    best_history = []
+    best_val     = np.inf
+    bounds       = [(0, 2 * np.pi)] * 2
+    rng          = np.random.default_rng(7)
+
+    starts = [np.array([0.5, 0.5])] + [rng.uniform(0, 2 * np.pi, 2) for _ in range(n_restarts - 1)]
+    for start in starts:
+        hist = []
+
+        def w1(x, _h=hist):
+            v = objective_p1(x)
+            _h.append(float(v))
+            return v
+
+        res = minimize(w1, start, method="L-BFGS-B", bounds=bounds,
+                       options={"maxiter": maxiter, "ftol": 1e-9, "gtol": 1e-7})
+        if res.fun < best_val:
+            best_val     = res.fun
+            best_params  = res.x
+            best_history = hist
 
     return best_params, best_history
 
@@ -269,13 +310,30 @@ def run_qaoa(m, F0, k_values, c_values, p_layers=1, lam=5.0, n_shots=4096):
     # Precompute all 2^n energies
     energies = _build_energy_vector(n_qubits, h, J)
 
-    # Optimize angles
-    x0 = np.array([0.5, 0.5] * p_layers)
-
+    # Optimize angles — use parameter transfer for p>1, L-BFGS-B throughout
     def objective(params):
         return _expectation(params, n_qubits, energies, p_layers)
 
-    optimal_params, energy_history = _cobyla_minimize(objective, x0, maxiter=300)
+    if p_layers == 1:
+        x0 = np.array([0.5, 0.5])
+        n_restarts = 6
+        optimal_params, energy_history = _lbfgsb_minimize(objective, x0, n_restarts=n_restarts, maxiter=400)
+    else:
+        # Parameter transfer: converge p=1 first, then extend and re-optimise each layer
+        rng = np.random.default_rng(7)
+        # Get good p=1 seed via transfer helper (energy history from this phase is discarded;
+        # we report only the final higher-p convergence for a cleaner visualization)
+        seed_params, _ = _parameter_transfer_minimize(n_qubits, energies, n_restarts=6, maxiter=400)
+
+        # Extend seed to full p_layers by repeating best angles
+        x0 = np.tile(seed_params, p_layers)
+        # Add noise to break symmetry for higher layers
+        x0[2:] += rng.uniform(-0.3, 0.3, size=len(x0) - 2)
+        x0 = np.clip(x0, 0, 2 * np.pi)
+
+        # More restarts for higher p (more parameters = harder landscape)
+        n_restarts = 4 + 2 * p_layers
+        optimal_params, energy_history = _lbfgsb_minimize(objective, x0, n_restarts=n_restarts, maxiter=500)
 
     # Final state + measurement probabilities
     final_state = _qaoa_state(optimal_params, n_qubits, energies, p_layers)
