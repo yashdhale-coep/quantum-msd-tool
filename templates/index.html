@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Quantum MSD Optimizer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:        #080b14;
+  --bg2:       #0d1220;
+  --bg3:       #111827;
+  --card:      #131c2e;
+  --border:    #1e2d45;
+  --border2:   #243552;
+  --cyan:      #00e5ff;
+  --cyan2:     #00b8cc;
+  --purple:    #a855f7;
+  --purple2:   #7c3aed;
+  --green:     #10b981;
+  --red:       #ef4444;
+  --amber:     #f59e0b;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --muted2:    #94a3b8;
+  --mono:      'Space Mono', monospace;
+  --sans:      'DM Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Scanline overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,229,255,0.015) 2px, rgba(0,229,255,0.015) 4px);
+  pointer-events: none; z-index: 0;
+}
+
+/* ── Header ── */
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 18px 32px;
+  display: flex; align-items: center; gap: 16px;
+  background: rgba(8,11,20,0.95);
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(10px);
+}
+.logo {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--cyan);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.logo span { color: var(--purple); }
+header .subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  margin-left: auto;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── Layout ── */
+.wrapper {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+  position: relative; z-index: 1;
+}
+
+/* ── Section titles ── */
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border2), transparent);
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+.card + .card { margin-top: 16px; }
+
+/* ── Grid ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+/* ── Inputs ── */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.field input, .field select {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.field input:focus, .field select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0,229,255,0.1);
+}
+.field .hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── Buttons ── */
+.btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 7px;
+  padding: 11px 22px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-primary {
+  background: var(--cyan);
+  color: #000;
+  font-weight: 700;
+}
+.btn-primary:hover { background: #33ecff; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,229,255,0.3); }
+.btn-quantum {
+  background: linear-gradient(135deg, var(--purple2), var(--purple));
+  color: #fff;
+  font-weight: 700;
+}
+.btn-quantum:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(168,85,247,0.4); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+
+/* ── Spinner ── */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: none;
+}
+.loading .spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Error banner ── */
+.error-msg {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 7px;
+  padding: 10px 14px;
+  color: #fca5a5;
+  font-size: 12px;
+  font-family: var(--mono);
+  display: none;
+  margin-top: 12px;
+}
+.error-msg.show { display: block; }
+
+/* ── Result badge ── */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 700;
+}
+.badge-cyan  { background: rgba(0,229,255,0.12); color: var(--cyan); border: 1px solid rgba(0,229,255,0.3); }
+.badge-purple{ background: rgba(168,85,247,0.12); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+.badge-green { background: rgba(16,185,129,0.12); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+.badge-red   { background: rgba(239,68,68,0.12);  color: var(--red);   border: 1px solid rgba(239,68,68,0.3); }
+.badge-amber { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+
+/* ── Stat blocks ── */
+.stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.stat-block {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 18px;
+  min-width: 130px;
+}
+.stat-block .s-label { font-size: 10px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.stat-block .s-val   { font-size: 22px; font-family: var(--mono); font-weight: 700; margin-top: 2px; }
+.stat-block .s-unit  { font-size: 11px; color: var(--muted2); margin-left: 3px; }
+
+/* ── Heatmap ── */
+#heatmap-container {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+#heatmap-table {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 100%;
+}
+#heatmap-table th {
+  padding: 8px 12px;
+  background: var(--bg2);
+  color: var(--muted2);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+#heatmap-table td {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 12px;
+  position: relative;
+}
+#heatmap-table td:hover { border-color: var(--cyan) !important; transform: scale(1.04); z-index: 2; }
+#heatmap-table td.is-best {
+  border: 2px solid var(--cyan) !important;
+  box-shadow: inset 0 0 12px rgba(0,229,255,0.12), 0 0 8px rgba(0,229,255,0.2);
+}
+
+/* ── Chart canvases ── */
+.chart-wrap {
+  position: relative;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 14px;
+}
+.chart-wrap canvas { max-height: 280px; }
+.chart-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  margin-bottom: 10px;
+}
+
+/* ── Comparison panel ── */
+#comparison-panel { display: none; margin-top: 20px; }
+#comparison-panel.show { display: block; }
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+.compare-card {
+  background: var(--bg2);
+  border-radius: 8px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+}
+.compare-card.winner { border-color: var(--green); box-shadow: 0 0 20px rgba(16,185,129,0.1); }
+
+/* ── Bitstring table ── */
+.bs-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; margin-top: 10px; }
+.bs-table th { padding: 6px 10px; background: var(--bg); color: var(--muted); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); text-align: left; }
+.bs-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.bs-table tr.best-row td { color: var(--cyan); }
+.bs-table tr.invalid-row td { color: var(--muted); }
+
+/* ── Prob bar ── */
+.prob-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.prob-bar { height: 8px; border-radius: 4px; min-width: 2px; transition: width 0.4s; }
+
+/* ── Lambda slider ── */
+.slider-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.slider-row input[type=range] {
+  flex: 1;
+  accent-color: var(--purple);
+  height: 4px;
+}
+.slider-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--purple);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ── Panel visibility ── */
+.result-panel { display: none; }
+.result-panel.show { display: block; }
+
+/* ── Divider ── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .grid-2, .grid-3, .compare-grid { grid-template-columns: 1fr; }
+  header { padding: 14px 16px; }
+  .wrapper { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Quantum<span>MSD</span> Optimizer</div>
+  <div class="status-dot"></div>
+  <div class="subtitle">Mass-Spring-Damper · QUBO · QAOA (p-layers)</div>
+</header>
+
+<div class="wrapper">
+
+  <!-- ── SECTION 1: Setup ─────────────────────────────── -->
+  <div class="section-label">01 / System Setup</div>
+  <div class="card">
+    <div class="grid-3" style="gap:16px;margin-bottom:16px;">
+      <div class="field">
+        <label>Mass m (kg)</label>
+        <input type="number" id="inp-m" value="1.0" min="0.01" max="1000" step="0.1"/>
+        <span class="hint">0.01 – 1000 kg</span>
+      </div>
+      <div class="field">
+        <label>Forcing amplitude F₀ (N)</label>
+        <input type="number" id="inp-F0" value="1.0" min="0.01" max="1000" step="0.1"/>
+        <span class="hint">0.01 – 1000 N</span>
+      </div>
+      <div class="field">
+        <label>QAOA depth p</label>
+        <select id="inp-p">
+          <option value="1" selected>p = 1  (fast)</option>
+          <option value="2">p = 2  (better)</option>
+          <option value="3">p = 3  (best, slower)</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid-2" style="gap:16px;margin-bottom:16px;">
+      <div class="field">
+        <label>Stiffness candidates k (N/m) — up to 6</label>
+        <input type="text" id="inp-k" value="500, 1000, 2000, 4000"/>
+        <span class="hint">Comma-separated. Min 2, max 6 values.</span>
+      </div>
+      <div class="field">
+        <label>Damping candidates c (Ns/m) — up to 6</label>
+        <input type="text" id="inp-c" value="5, 10, 20, 40"/>
+        <span class="hint">Comma-separated. Min 2, max 6 values.</span>
+      </div>
+    </div>
+
+    <!-- Lambda control -->
+    <div class="field" style="max-width:420px;">
+      <label>Penalty weight λ (QUBO constraint strength)</label>
+      <div class="slider-row">
+        <input type="range" id="inp-lam" min="0.5" max="10" step="0.5" value="3"/>
+        <span class="slider-val" id="lam-display">3.0</span>
+      </div>
+      <span class="hint">Too low → QAOA may violate one-hot constraint. Recommended: 3.0</span>
+    </div>
+
+    <div id="setup-error" class="error-msg"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-bf" onclick="runBruteForce()">
+        <span class="spinner" id="sp-bf"></span>
+        ⚡ Run Brute Force
+      </button>
+      <button class="btn btn-quantum" id="btn-qaoa" onclick="runQAOA()" disabled>
+        <span class="spinner" id="sp-qaoa"></span>
+        ◈ Run QAOA
+      </button>
+      <span id="combo-count" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:6px;"></span>
+    </div>
+  </div>
+
+  <!-- ── SECTION 2: Brute Force ────────────────────────── -->
+  <div id="bf-panel" class="result-panel" style="margin-top:28px;">
+    <div class="section-label">02 / Brute Force Results</div>
+    <div class="card">
+      <div class="stats-row" id="bf-stats"></div>
+
+      <div class="grid-2">
+        <!-- Heatmap -->
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted2);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">
+            Peak Vibration Heatmap — click any cell
+          </div>
+          <div id="heatmap-container"></div>
+        </div>
+
+        <!-- Freq response (click on cell to update) -->
+        <div>
+          <div class="chart-wrap">
+            <div class="chart-title" id="freq-chart-title">Frequency Response — All Combinations</div>
+            <canvas id="freq-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SECTION 3: QAOA ───────────────────────────────── -->
+  <div id="qaoa-panel" class="result-panel" style="margin-top:28px;">
+    <div class="section-label">03 / QAOA Results</div>
+    <div id="qaoa-error" class="error-msg"></div>
+    <div class="card" id="qaoa-card">
+      <div class="stats-row" id="qaoa-stats"></div>
+      <div class="grid-2">
+        <!-- Convergence -->
+        <div>
+          <div class="chart-wrap">
+            <div class="chart-title">Variational Loop — Energy Convergence</div>
+            <canvas id="conv-chart"></canvas>
+          </div>
+        </div>
+        <!-- Probability histogram -->
+        <div>
+          <div class="chart-wrap">
+            <div class="chart-title">Measurement Distribution (top bitstrings)</div>
+            <canvas id="prob-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bitstring table -->
+      <div style="margin-top:16px;">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted2);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">
+          Top Measurement Results
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="bs-table" id="bs-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Bitstring</th><th>Probability</th><th>k (N/m)</th><th>c (Ns/m)</th><th>X_peak (m)</th><th>Valid?</th>
+              </tr>
+            </thead>
+            <tbody id="bs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SECTION 4: Comparison ─────────────────────────── -->
+  <div id="comparison-panel">
+    <hr class="divider"/>
+    <div class="section-label">04 / Comparison</div>
+    <div id="verdict-banner" style="margin-bottom:16px;"></div>
+    <div class="compare-grid">
+      <div class="compare-card" id="bf-compare-card">
+        <div class="badge badge-cyan" style="margin-bottom:12px;">⚡ Brute Force</div>
+        <div id="bf-compare-content"></div>
+      </div>
+      <div class="compare-card" id="qaoa-compare-card">
+        <div class="badge badge-purple" style="margin-bottom:12px;">◈ QAOA</div>
+        <div id="qaoa-compare-content"></div>
+      </div>
+    </div>
+
+    <!-- Overlay frequency response -->
+    <div class="card" style="margin-top:16px;">
+      <div class="chart-wrap" style="margin-top:0;">
+        <div class="chart-title">Optimal System — Frequency Response Overlay</div>
+        <canvas id="overlay-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /wrapper -->
+
+<script>
+// ── State ─────────────────────────────────────────────────
+let bfResult   = null;
+let qaoaResult = null;
+let freqChart  = null;
+let convChart  = null;
+let probChart  = null;
+let overlayChart = null;
+
+// ── Lambda display ────────────────────────────────────────
+document.getElementById('inp-lam').addEventListener('input', function() {
+  document.getElementById('lam-display').textContent = parseFloat(this.value).toFixed(1);
+});
+
+// ── Combo count live update ───────────────────────────────
+function updateComboCount() {
+  const k = document.getElementById('inp-k').value.split(',').filter(x => x.trim()).length;
+  const c = document.getElementById('inp-c').value.split(',').filter(x => x.trim()).length;
+  const n = k * c;
+  const el = document.getElementById('combo-count');
+  el.textContent = `${k} × ${c} = ${n} combinations`;
+  el.style.color = n > 36 ? 'var(--red)' : 'var(--muted)';
+}
+document.getElementById('inp-k').addEventListener('input', updateComboCount);
+document.getElementById('inp-c').addEventListener('input', updateComboCount);
+updateComboCount();
+
+// ── Collect form inputs ───────────────────────────────────
+function getInputs() {
+  return {
+    m:        document.getElementById('inp-m').value,
+    F0:       document.getElementById('inp-F0').value,
+    k_values: document.getElementById('inp-k').value,
+    c_values: document.getElementById('inp-c').value,
+    p_layers: document.getElementById('inp-p').value,
+    lam:      document.getElementById('inp-lam').value,
+  };
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function clearError(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// ── Heatmap color scale (dark red → pale yellow) ──────────
+function heatColor(val, min, max) {
+  const t = (val - min) / (max - min + 1e-12);
+  // low = dark red, high = pale
+  const r = Math.round(20  + t * 220);
+  const g = Math.round(5   + t * 160);
+  const b = Math.round(5   + t * 80);
+  return `rgb(${r},${g},${b})`;
+}
+function textColor(val, min, max) {
+  const t = (val - min) / (max - min + 1e-12);
+  return t > 0.55 ? '#111' : '#eee';
+}
+
+// ── Build heatmap table ───────────────────────────────────
+function buildHeatmap(data) {
+  const { k_values, c_values, cost_matrix, best } = data;
+  const allVals = cost_matrix.flat();
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
+
+  let html = '<table id="heatmap-table"><thead><tr><th>k \\ c</th>';
+  c_values.forEach(c => { html += `<th>c=${c}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  k_values.forEach((k, i) => {
+    html += `<tr><th>k=${k}</th>`;
+    c_values.forEach((c, j) => {
+      const v = cost_matrix[i][j];
+      const isBest = k === best.k && c === best.c;
+      const bg  = heatColor(v, minV, maxV);
+      const fg  = textColor(v, minV, maxV);
+      html += `<td class="${isBest ? 'is-best' : ''}"
+        style="background:${bg};color:${fg}"
+        onclick="fetchFreqResponse(${k},${c})"
+        title="k=${k}, c=${c}, X_peak=${v.toExponential(3)}">
+        ${v.toExponential(2)}
+      </td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('heatmap-container').innerHTML = html;
+}
+
+// ── Frequency response chart (all combos) ────────────────
+function buildFreqChart(data) {
+  const ctx = document.getElementById('freq-chart').getContext('2d');
+  if (freqChart) freqChart.destroy();
+
+  const datasets = data.freq_curves.map(curve => ({
+    label: `k=${curve.k}, c=${curve.c}`,
+    data: curve.omega.map((o, i) => ({ x: o, y: Math.log10(curve.X[i]) })),
+    borderColor: curve.is_best ? '#00e5ff' : 'rgba(100,116,139,0.35)',
+    borderWidth: curve.is_best ? 2.5 : 1,
+    pointRadius: 0,
+    tension: 0.3,
+  }));
+
+  freqChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'ω (rad/s)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } },
+        y: { title: { display: true, text: 'log₁₀ X (m)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+// ── Single freq response (heatmap click) ─────────────────
+async function fetchFreqResponse(k, c) {
+  const { m, F0 } = getInputs();
+  const res = await fetch('/api/freq-response', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ m, F0, k, c })
+  });
+  const json = await res.json();
+  if (!json.ok) return;
+
+  document.getElementById('freq-chart-title').textContent =
+    `Frequency Response — k=${k} N/m, c=${c} Ns/m  |  X_peak = ${json.x_peak.toExponential(3)} m`;
+
+  const ctx = document.getElementById('freq-chart').getContext('2d');
+  if (freqChart) freqChart.destroy();
+  freqChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: `k=${k}, c=${c}`,
+        data: json.omega.map((o, i) => ({ x: o, y: Math.log10(json.X[i]) })),
+        borderColor: '#00e5ff',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'ω (rad/s)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } },
+        y: { title: { display: true, text: 'log₁₀ X (m)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+// ── BF stats ──────────────────────────────────────────────
+function buildBFStats(data) {
+  const b = data.best;
+  document.getElementById('bf-stats').innerHTML = `
+    <div class="stat-block">
+      <div class="s-label">Optimal k</div>
+      <div class="s-val" style="color:var(--cyan)">${b.k}<span class="s-unit">N/m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">Optimal c</div>
+      <div class="s-val" style="color:var(--cyan)">${b.c}<span class="s-unit">Ns/m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">Min X_peak</div>
+      <div class="s-val" style="color:var(--green);font-size:16px;">${b.x_peak.toExponential(3)}<span class="s-unit">m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">Combinations</div>
+      <div class="s-val" style="color:var(--muted2)">${data.n_combos}</div>
+    </div>
+  `;
+}
+
+// ── QAOA convergence chart ────────────────────────────────
+function buildConvChart(data) {
+  const ctx = document.getElementById('conv-chart').getContext('2d');
+  if (convChart) convChart.destroy();
+  const pts = data.convergence;
+  convChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        data: pts.map(p => ({ x: p.iter, y: p.energy })),
+        borderColor: '#a855f7',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        backgroundColor: 'rgba(168,85,247,0.06)',
+        tension: 0.4,
+      }]
+    },
+    options: {
+      animation: { duration: 600 },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'Iteration', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } },
+        y: { title: { display: true, text: 'Energy ⟨H⟩', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+// ── Probability histogram ─────────────────────────────────
+function buildProbChart(data) {
+  const ctx = document.getElementById('prob-chart').getContext('2d');
+  if (probChart) probChart.destroy();
+
+  const top = data.prob_list.slice(0, 20);
+  const labels = top.map(p => p.bitstring.slice(0, 8));
+  const vals   = top.map(p => p.prob);
+  const colors = top.map(p => {
+    if (!p.valid) return 'rgba(100,116,139,0.4)';
+    if (p.k === data.classical_best.k && p.c === data.classical_best.c) return '#00e5ff';
+    return 'rgba(168,85,247,0.6)';
+  });
+
+  probChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data: vals, backgroundColor: colors, borderWidth: 0, borderRadius: 3 }]
+    },
+    options: {
+      animation: { duration: 500 },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 }, maxRotation: 45 }, grid: { display: false } },
+        y: { title: { display: true, text: 'Probability', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+// ── QAOA stats ────────────────────────────────────────────
+function buildQAOAStats(data) {
+  const b = data.qaoa_best;
+  const matchBadge = data.match
+    ? `<span class="badge badge-green">✓ MATCH</span>`
+    : `<span class="badge badge-red">✗ MISMATCH</span>`;
+
+  document.getElementById('qaoa-stats').innerHTML = `
+    <div class="stat-block">
+      <div class="s-label">QAOA Optimal k</div>
+      <div class="s-val" style="color:var(--purple)">${b ? b.k : '—'}<span class="s-unit">N/m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">QAOA Optimal c</div>
+      <div class="s-val" style="color:var(--purple)">${b ? b.c : '—'}<span class="s-unit">Ns/m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">X_peak</div>
+      <div class="s-val" style="color:var(--green);font-size:16px;">${b ? b.x_peak.toExponential(3) : '—'}<span class="s-unit">m</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">Depth p / Qubits</div>
+      <div class="s-val" style="color:var(--muted2)">${data.p_layers} / ${data.n_qubits}</div>
+    </div>
+    <div class="stat-block">
+      <div class="s-label">Iterations</div>
+      <div class="s-val" style="color:var(--muted2)">${data.n_iters}</div>
+    </div>
+    <div class="stat-block" style="align-self:center;">
+      ${matchBadge}
+    </div>
+  `;
+}
+
+// ── Bitstring table ───────────────────────────────────────
+function buildBSTable(data) {
+  const tbody = document.getElementById('bs-tbody');
+  tbody.innerHTML = '';
+  data.prob_list.slice(0, 15).forEach((p, i) => {
+    const isBest = p.valid && data.classical_best && p.k === data.classical_best.k && p.c === data.classical_best.c;
+    const rowClass = isBest ? 'best-row' : (!p.valid ? 'invalid-row' : '');
+    const barW = Math.round(p.prob * 120);
+    tbody.innerHTML += `<tr class="${rowClass}">
+      <td>${i + 1}</td>
+      <td style="font-size:10px;letter-spacing:0.05em;">${p.bitstring}</td>
+      <td>
+        <div class="prob-bar-wrap">
+          <div class="prob-bar" style="width:${barW}px;background:${isBest ? 'var(--cyan)' : p.valid ? 'var(--purple)' : 'var(--muted)'}"></div>
+          <span>${(p.prob * 100).toFixed(2)}%</span>
+        </div>
+      </td>
+      <td>${p.valid ? p.k : '—'}</td>
+      <td>${p.valid ? p.c : '—'}</td>
+      <td>${p.x_peak !== null ? p.x_peak.toExponential(3) : '—'}</td>
+      <td>${p.valid ? '<span class="badge badge-green" style="font-size:9px;">✓</span>' : '<span class="badge badge-red" style="font-size:9px;">✗</span>'}</td>
+    </tr>`;
+  });
+}
+
+// ── Comparison panel ──────────────────────────────────────
+function buildComparison() {
+  if (!bfResult || !qaoaResult) return;
+  const bf = bfResult.best;
+  const qa = qaoaResult.qaoa_best;
+  const match = qaoaResult.match;
+
+  document.getElementById('comparison-panel').classList.add('show');
+
+  document.getElementById('verdict-banner').innerHTML = match
+    ? `<div class="badge badge-green" style="font-size:13px;padding:10px 18px;">
+         ✓ QAOA found the same optimal solution as Brute Force
+       </div>`
+    : `<div class="badge badge-amber" style="font-size:13px;padding:10px 18px;">
+         ⚠ QAOA result differs from Brute Force — try increasing p or λ
+       </div>`;
+
+  document.getElementById('bf-compare-content').innerHTML = `
+    <div style="font-family:var(--mono);font-size:12px;line-height:2;">
+      <div>k = <span style="color:var(--cyan);font-weight:700;">${bf.k}</span> N/m</div>
+      <div>c = <span style="color:var(--cyan);font-weight:700;">${bf.c}</span> Ns/m</div>
+      <div>X_peak = <span style="color:var(--green);font-weight:700;">${bf.x_peak.toExponential(4)}</span> m</div>
+      <div style="margin-top:8px;color:var(--muted);font-size:10px;">Evaluated all ${bfResult.n_combos} combinations exhaustively</div>
+    </div>`;
+
+  const qaText = qa
+    ? `<div>k = <span style="color:var(--purple);font-weight:700;">${qa.k}</span> N/m</div>
+       <div>c = <span style="color:var(--purple);font-weight:700;">${qa.c}</span> Ns/m</div>
+       <div>X_peak = <span style="color:var(--green);font-weight:700;">${qa.x_peak.toExponential(4)}</span> m</div>
+       <div style="margin-top:8px;color:var(--muted);font-size:10px;">
+         p=${qaoaResult.p_layers} layers · ${qaoaResult.n_qubits} qubits · ${qaoaResult.n_iters} iterations
+       </div>`
+    : `<div style="color:var(--red);">No valid one-hot bitstring found in top results.</div>`;
+
+  document.getElementById('qaoa-compare-content').innerHTML =
+    `<div style="font-family:var(--mono);font-size:12px;line-height:2;">${qaText}</div>`;
+
+  if (match) {
+    document.getElementById('qaoa-compare-card').classList.add('winner');
+    document.getElementById('bf-compare-card').classList.add('winner');
+  }
+
+  buildOverlayChart();
+}
+
+function buildOverlayChart() {
+  const ctx = document.getElementById('overlay-chart').getContext('2d');
+  if (overlayChart) overlayChart.destroy();
+
+  const bf_best = bfResult.best;
+  const bf_curve = bfResult.freq_curves.find(c => c.k === bf_best.k && c.c === bf_best.c);
+
+  const datasets = [
+    {
+      label: `Optimal k=${bf_best.k}, c=${bf_best.c}`,
+      data: bf_curve.omega.map((o, i) => ({ x: o, y: Math.log10(bf_curve.X[i]) })),
+      borderColor: '#00e5ff',
+      borderWidth: 2.5,
+      pointRadius: 0,
+      tension: 0.3,
+    }
+  ];
+
+  // Worst combo for reference
+  const worst = bfResult.results.reduce((a, b) => a.x_peak > b.x_peak ? a : b);
+  const worst_curve = bfResult.freq_curves.find(c => c.k === worst.k && c.c === worst.c);
+  if (worst_curve) {
+    datasets.push({
+      label: `Worst k=${worst.k}, c=${worst.c}`,
+      data: worst_curve.omega.map((o, i) => ({ x: o, y: Math.log10(worst_curve.X[i]) })),
+      borderColor: 'rgba(239,68,68,0.6)',
+      borderWidth: 1.5,
+      borderDash: [5, 4],
+      pointRadius: 0,
+      tension: 0.3,
+    });
+  }
+
+  overlayChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      animation: { duration: 600 },
+      plugins: {
+        legend: {
+          display: true,
+          labels: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 }, boxWidth: 20 }
+        }
+      },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'ω (rad/s)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } },
+        y: { title: { display: true, text: 'log₁₀ X (m)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+// ── Run Brute Force ───────────────────────────────────────
+async function runBruteForce() {
+  clearError('setup-error');
+  const btn = document.getElementById('btn-bf');
+  const sp  = document.getElementById('sp-bf');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  sp.style.display = 'block';
+
+  try {
+    const res  = await fetch('/api/brute-force', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getInputs())
+    });
+    const json = await res.json();
+
+    if (!json.ok) {
+      showError('setup-error', json.error);
+      return;
+    }
+
+    bfResult = json.data;
+    document.getElementById('bf-panel').classList.add('show');
+    buildBFStats(bfResult);
+    buildHeatmap(bfResult);
+    buildFreqChart(bfResult);
+
+    document.getElementById('btn-qaoa').disabled = false;
+
+    // Reset comparison if re-running BF
+    qaoaResult = null;
+    document.getElementById('qaoa-panel').classList.remove('show');
+    document.getElementById('comparison-panel').classList.remove('show');
+
+  } catch(e) {
+    showError('setup-error', 'Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    sp.style.display = 'none';
+  }
+}
+
+// ── Run QAOA ──────────────────────────────────────────────
+async function runQAOA() {
+  clearError('qaoa-error');
+  const btn = document.getElementById('btn-qaoa');
+  const sp  = document.getElementById('sp-qaoa');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  sp.style.display = 'block';
+
+  document.getElementById('qaoa-panel').classList.add('show');
+  document.getElementById('qaoa-card').style.opacity = '0.4';
+
+  try {
+    const res  = await fetch('/api/qaoa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getInputs())
+    });
+    const json = await res.json();
+
+    document.getElementById('qaoa-card').style.opacity = '1';
+
+    if (!json.ok) {
+      showError('qaoa-error', json.error);
+      document.getElementById('qaoa-panel').classList.remove('show');
+      return;
+    }
+
+    qaoaResult = json.data;
+    buildQAOAStats(qaoaResult);
+    buildConvChart(qaoaResult);
+    buildProbChart(qaoaResult);
+    buildBSTable(qaoaResult);
+    buildComparison();
+
+  } catch(e) {
+    showError('qaoa-error', 'Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    sp.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>
